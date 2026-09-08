@@ -1,0 +1,18 @@
+<%- include('partials/header') %>
+<a href="/">← Your visits</a>
+<section class="card narrow">
+<p class="eyebrow">NEW REQUEST</p>
+<h1>What care do you need?</h1>
+<form method="post" action="/visits">
+<input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Specialty<input name="specialty" minlength="2" maxlength="100" placeholder="e.g. General practice" required>
+</label>
+<label>Location<input name="location" minlength="2" maxlength="200" placeholder="City or neighbourhood" required>
+</label>
+<label>Preferred time (UTC)<input type="datetime-local" name="preferredTime" required>
+</label>
+<p class="muted">Enter a future time in UTC. Doctors will bid on this request.</p>
+<button>Submit request</button>
+</form>
+</section>
+<%- include('partials/footer') %>

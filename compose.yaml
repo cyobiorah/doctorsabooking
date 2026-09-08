@@ -1,0 +1,131 @@
+services:
+  secrets:
+    image: node:22.17.1-bookworm-slim
+    volumes:
+      - demo-secrets:/secrets
+      - ./scripts/init-secrets.cjs:/init.cjs:ro
+    command: [node, /init.cjs]
+  db:
+    image: mysql:8.4.5
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/demo-secrets/DB_PASSWORD
+      MYSQL_DATABASE: doctorsa
+    volumes:
+      - demo-secrets:/run/demo-secrets:ro
+      - mysql-data:/var/lib/mysql
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'MYSQL_PWD=$$(cat /run/demo-secrets/DB_PASSWORD) mysql -h 127.0.0.1 -u root -e "SELECT 1"',
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+  mock-db:
+    image: mysql:8.4.5
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/demo-secrets/DB_PASSWORD
+      MYSQL_DATABASE: mock_payments
+    volumes:
+      - demo-secrets:/run/demo-secrets:ro
+      - mock-data:/var/lib/mysql
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'MYSQL_PWD=$$(cat /run/demo-secrets/DB_PASSWORD) mysql -h 127.0.0.1 -u root -e "SELECT 1"',
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+  app:
+    build: .
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      SECRETS_DIR: /run/demo-secrets
+      DB_NAME: doctorsa
+      MOCK_URL: http://mock:3001
+    volumes: ["demo-secrets:/run/demo-secrets:ro"]
+    depends_on:
+      db:
+        condition: service_healthy
+      mock:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  mock:
+    build: .
+    ports: ["127.0.0.1:3001:3001"]
+    environment:
+      SERVICE: mock
+      SECRETS_DIR: /run/demo-secrets
+      DB_HOST: mock-db
+      DB_NAME: mock_payments
+      WEBHOOK_URL: http://app:3000/webhooks/payment
+    volumes: ["demo-secrets:/run/demo-secrets:ro"]
+    depends_on:
+      mock-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  test-db:
+    image: mysql:8.4.5
+    profiles: [test]
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/demo-secrets/DB_PASSWORD
+      MYSQL_DATABASE: doctorsa_test
+    volumes: ["demo-secrets:/run/demo-secrets:ro"]
+    tmpfs: [/var/lib/mysql]
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'MYSQL_PWD=$$(cat /run/demo-secrets/DB_PASSWORD) mysql -h 127.0.0.1 -u root -e "SELECT 1"',
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+  test:
+    build: .
+    profiles: [test]
+    environment:
+      SERVICE: test
+      SECRETS_DIR: /run/demo-secrets
+      DB_HOST: test-db
+      DB_NAME: doctorsa_test
+    volumes: ["demo-secrets:/run/demo-secrets:ro"]
+    depends_on:
+      test-db:
+        condition: service_healthy
+volumes:
+  demo-secrets:
+  mysql-data:
+  mock-data:

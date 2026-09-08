@@ -1,0 +1,28 @@
+<%- include('partials/header') %>
+<section class="card narrow">
+<p class="eyebrow">CARE STARTS HERE</p>
+<h1>Welcome back</h1>
+<p class="muted">Sign in to request a visit or find your next patient.</p>
+<% if(error){ %>
+<p role="alert" class="notice">
+<%= error %>
+</p>
+<% } %>
+<form method="post" action="/login">
+<input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Email<input type="email" name="email" autocomplete="username" required>
+</label>
+<label>Password<input type="password" name="password" autocomplete="current-password" required>
+</label>
+<button>Sign in</button>
+</form>
+<details>
+<summary>Demo accounts</summary>
+<p><% for(const account of demoAccounts){ %>
+<%= account.email %><br>
+<% } %></p>
+<p>Password for all: <code><%= demoPassword %></code>
+</p>
+</details>
+</section>
+<%- include('partials/footer') %>

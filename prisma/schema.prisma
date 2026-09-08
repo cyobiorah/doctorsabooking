@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  patient
+  doctor
+}
+
+enum VisitStatus {
+  open
+  bidding
+  paid
+  assigned
+}
+
+enum PaymentStatus {
+  pending
+  succeeded
+  declined
+}
+
+model User {
+  id           String  @id @default(uuid()) @db.Char(36)
+  email        String  @unique @db.VarChar(191)
+  name         String  @db.VarChar(100)
+  passwordHash String  @db.VarChar(100)
+  role         Role
+  requests     Visit[] @relation("Patient")
+  assignments  Visit[] @relation("Doctor")
+  bids         Bid[]
+}
+
+model Visit {
+  id               String           @id @default(uuid()) @db.Char(36)
+  patientId        String           @db.Char(36)
+  patient          User             @relation("Patient", fields: [patientId], references: [id])
+  specialty        String           @db.VarChar(100)
+  location         String           @db.VarChar(200)
+  preferredTime    DateTime         @db.DateTime(3)
+  status           VisitStatus      @default(open)
+  selectedBidId    String?          @unique @db.Char(36)
+  selectedBid      Bid?             @relation("Selected", fields: [selectedBidId], references: [id])
+  assignedDoctorId String?          @db.Char(36)
+  assignedDoctor   User?            @relation("Doctor", fields: [assignedDoctorId], references: [id])
+  bids             Bid[]            @relation("VisitBids")
+  payments         PaymentAttempt[]
+  history          Transition[]
+  createdAt        DateTime         @default(now())
+
+  @@index([patientId, createdAt])
+  @@index([status, selectedBidId])
+}
+
+model Bid {
+  id         String   @id @default(uuid()) @db.Char(36)
+  visitId    String   @db.Char(36)
+  visit      Visit    @relation("VisitBids", fields: [visitId], references: [id])
+  doctorId   String   @db.Char(36)
+  doctor     User     @relation(fields: [doctorId], references: [id])
+  amount     Int
+  currency   String   @default("USD") @db.Char(3)
+  note       String   @db.VarChar(500)
+  selectedBy Visit?   @relation("Selected")
+  paymentAttempts PaymentAttempt[]
+  createdAt  DateTime @default(now())
+
+  @@unique([visitId, doctorId])
+}
+
+model PaymentAttempt {
+  id             String         @id @default(uuid()) @db.Char(36)
+  visitId        String         @db.Char(36)
+  visit          Visit          @relation(fields: [visitId], references: [id])
+  bidId          String         @db.Char(36)
+  bid            Bid            @relation(fields: [bidId], references: [id])
+  amount         Int
+  currency       String         @db.Char(3)
+  status         PaymentStatus  @default(pending)
+  // MySQL permits multiple NULLs; only one pending attempt can hold a visit ID.
+  pendingVisitId String?        @unique @db.Char(36)
+  events         WebhookEvent[]
+  createdAt      DateTime       @default(now())
+
+  @@index([visitId, createdAt])
+  @@index([bidId])
+}
+
+model WebhookEvent {
+  id        String         @id @db.Char(36)
+  attemptId String         @db.Char(36)
+  attempt   PaymentAttempt @relation(fields: [attemptId], references: [id])
+  outcome   PaymentStatus
+  amount    Int
+  currency  String         @db.Char(3)
+  createdAt DateTime       @default(now())
+}
+
+model Transition {
+  id        Int         @id @default(autoincrement())
+  visitId   String      @db.Char(36)
+  visit     Visit       @relation(fields: [visitId], references: [id])
+  status    VisitStatus
+  createdAt DateTime    @default(now())
+}
+
+model Session {
+  id        String   @id @db.VarChar(128)
+  data      String   @db.Text
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+// The mock service uses a separate database with the same migrations.
+model MockPayment {
+  id       String        @id @db.Char(36)
+  token    String        @unique @db.VarChar(64)
+  eventId  String        @unique @db.Char(36)
+  amount   Int
+  currency String        @db.Char(3)
+  status   PaymentStatus @default(pending)
+}

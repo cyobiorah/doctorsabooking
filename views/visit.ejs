@@ -1,0 +1,122 @@
+<%- include('partials/header') %>
+<a href="/">← Dashboard</a>
+<div class="heading">
+<div>
+<p class="eyebrow">VISIT REQUEST</p>
+<h1>
+<%= visit.specialty %>
+</h1>
+<p>
+<%= visit.location %> · <%= time(visit.preferredTime) %>
+</p>
+</div>
+<span class="badge">
+<%= visit.status %>
+</span>
+</div>
+<% const showPatientAssignment = user.role==='patient' && !!visit.assignedDoctor; %>
+<% const showDoctorAssignment = user.role==='doctor' && visit.assignedDoctorId===user.id; %>
+<% const showPaymentLock = user.role==='patient' && !!visit.selectedBidId && visit.status!=='assigned'; %>
+<% const showPaymentDeclined = user.role==='patient' && visit.status==='bidding' && visit.payments[0]?.status==='declined'; %>
+<% if(showPatientAssignment || showDoctorAssignment || showPaymentLock || showPaymentDeclined){ %>
+<div class="status-banner-row">
+<% if(showPatientAssignment){ %>
+<p class="notice">Confirmed! Your visit is assigned to <strong>
+<%= visit.assignedDoctor.name %>
+</strong>.</p>
+<% } else if(showDoctorAssignment){ %>
+<p class="notice">This visit is assigned to you.</p>
+<% } else if(showPaymentLock){ %>
+<p class="notice">Your doctor and price are locked. Complete checkout below.</p>
+<% } else if(showPaymentDeclined){ %>
+<p class="notice">Payment declined. Retry this doctor or choose another bid.</p>
+<% } %>
+</div>
+<% } %>
+<div class="columns">
+<section>
+<h2>
+<%= user.role==='patient'?'Doctor bids':'Your bid' %>
+</h2>
+<% if(!visit.bids.length){ %>
+<p class="muted">No bids yet.</p>
+<% } %>
+<% for(const bid of visit.bids){ %>
+<article class="card">
+<div class="heading">
+<h3>
+<%= bid.doctor.name %>
+</h3>
+<strong>
+<%= money(bid.amount) %>
+</strong>
+</div>
+<p class="note">
+<%= bid.note %>
+</p>
+<% if(user.role==='patient' && visit.status==='bidding' && (!visit.selectedBidId || visit.selectedBidId===bid.id)){ %>
+<form method="post" action="/visits/<%= visit.id %>/pay">
+<input type="hidden" name="_csrf" value="<%= csrf %>">
+<input type="hidden" name="bidId" value="<%= bid.id %>">
+<button>
+<%= visit.selectedBidId?'Continue / retry payment':'Select bid & pay' %>
+</button>
+<% if(!visit.selectedBidId){ %>
+<p class="muted">Selecting this bid locks the doctor and price.</p>
+<% } %>
+</form>
+<% } %>
+</article>
+<% } %>
+<% if(user.role==='doctor' && !visit.selectedBidId && !visit.bids.length && ['open','bidding'].includes(visit.status)){ %>
+<section class="card">
+<h3>Submit your bid</h3>
+<form method="post" action="/visits/<%= visit.id %>/bids">
+<input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Price (USD)<input name="price" type="number" min="0.01" max="99999.99" step="0.01" required>
+</label>
+<label>Short note<textarea name="note" maxlength="500" required rows="4">
+</textarea>
+</label>
+<p class="muted">Bids cannot be edited after submission.</p>
+<button>Submit bid</button>
+</form>
+</section>
+<% } %>
+</section>
+<aside>
+<section class="card">
+<h2>Visit history</h2>
+<ol>
+<% for(const transition of visit.history){ %>
+<li>
+<strong>
+<%= transition.status %>
+</strong>
+<br>
+<small>
+<%= time(transition.createdAt) %>
+</small>
+</li>
+<% } %>
+</ol>
+</section>
+<% if(user.role==='patient' && visit.payments.length){ %>
+<section class="card">
+<h2>Payment attempts</h2>
+<% for(const payment of visit.payments){ %>
+<p>
+<span class="badge">
+<%= payment.status %>
+</span> <%= money(payment.amount) %>
+<br>
+<small>
+<%= time(payment.createdAt) %>
+</small>
+</p>
+<% } %>
+</section>
+<% } %>
+</aside>
+</div>
+<%- include('partials/footer') %>

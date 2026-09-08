@@ -1,0 +1,48 @@
+<%- include('partials/header') %>
+<div class="heading">
+<div>
+<p class="eyebrow">
+<%= user.role==='patient'?'YOUR CARE':'YOUR PRACTICE' %>
+</p>
+<h1>
+<%= title %>
+</h1>
+<p class="muted">
+<%= user.role==='patient'?'Request care, compare bids, and book a doctor.':'Browse requests, submit a bid, and manage assigned visits.' %>
+</p>
+</div>
+<% if(user.role==='patient'){ %>
+<a class="button" href="/visits/new">Request a visit</a>
+<% } %>
+</div>
+<% if(!visits.length){ %>
+<section class="card">
+<h2>No visits yet</h2>
+<p class="muted">
+<%= user.role==='patient'?'Start by requesting your first visit.':'Patient requests will appear here when they are created.' %>
+</p>
+</section>
+<% } %>
+<div class="grid">
+<% for(const visit of visits){ %>
+<a class="card visit-link" href="/visits/<%= visit.id %>">
+<span class="badge">
+<%= visit.status %>
+</span>
+<h2>
+<%= visit.specialty %>
+</h2>
+<p>
+<%= visit.location %>
+</p>
+<p class="muted">
+<%= time(visit.preferredTime) %>
+</p>
+<p>
+<%= visit._count.bids %> bid(s)<%= visit.selectedBidId && visit.status!=='assigned'?' · Selection locked':'' %>
+</p>
+<strong>View visit →</strong>
+</a>
+<% } %>
+</div>
+<%- include('partials/footer') %>

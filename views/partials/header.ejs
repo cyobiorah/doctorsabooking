@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>
+<%= title %> · Doctorsa</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+<a class="brand" href="/">doctorsa
+</a>
+<% if (typeof user !== 'undefined' && user) { %>
+<nav>
+<span>
+<%= user.name %> · <%= user.role %>
+</span>
+<form method="post" action="/logout">
+<input type="hidden" name="_csrf" value="<%= csrf %>">
+<button class="secondary">Sign out</button>
+</form>
+</nav>
+<% } %>
+</header>
+<main>

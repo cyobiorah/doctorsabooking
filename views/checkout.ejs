@@ -1,0 +1,31 @@
+<%- include('partials/header') %>
+<section class="card narrow">
+<p class="eyebrow">MOCK PAYMENT SERVICE</p>
+<h1>
+<%= payment.status==='pending'?'Complete your payment':'Payment '+payment.status %>
+</h1>
+<p class="price">
+<%= money(payment.amount) %> <small>USD</small>
+</p>
+<p class="muted">This is a simulation. No card details or real money are involved.</p>
+<% if(message){ %>
+<p class="notice" role="status">
+<%= message %>
+</p>
+<% } %>
+<form method="post" action="/checkout/<%= payment.token %>">
+<input type="hidden" name="_csrf" value="<%= payment.token %>">
+<div class="actions">
+<% if(payment.status==='pending'){ %>
+<button name="outcome" value="succeeded">Approve payment</button>
+<button class="secondary" name="outcome" value="declined">Simulate decline</button>
+<% }else{ %>
+<button name="outcome" value="resend">Resend confirmation</button>
+<% } %>
+</div>
+</form>
+<p>
+<a href="<%= appUrl %>">Return to your visits →</a>
+</p>
+</section>
+<%- include('partials/footer') %>
