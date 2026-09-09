@@ -457,6 +457,16 @@ test("mock creation is idempotent and saved outcomes survive failed delivery and
     .expect(409);
   const path = new URL(first.body.checkoutUrl).pathname;
   const checkout = await request(mock).get(path).expect(200);
+  expect(checkout.text).toContain("SECURE TEST CHECKOUT");
+  expect(checkout.text).toContain("TEST MODE");
+  expect(checkout.text).toContain("Test card");
+  expect(checkout.text).toContain("•••• 4242");
+  expect(checkout.text).toContain("Complete your payment");
+  await request(mock)
+    .get("/checkout.js")
+    .expect(200)
+    .expect("Content-Type", /javascript/)
+    .expect((response) => expect(response.text).toContain("requestSubmit"));
   const fetchMock = jest
     .spyOn(global, "fetch")
     .mockRejectedValueOnce(new Error("offline"))

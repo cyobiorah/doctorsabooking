@@ -1,31 +1,67 @@
 <%- include('partials/header') %>
-<section class="card narrow">
-<p class="eyebrow">MAKE PAYMENT</p>
-<h1>
-<%= payment.status==='pending'?'Complete your payment':'Payment '+payment.status %>
+<% const isPending = payment.status === 'pending'; %>
+<% const isSuccessful = payment.status === 'succeeded'; %>
+<% const reference = payment.id.slice(-8).toUpperCase(); %>
+<section class="card narrow payment-card" aria-labelledby="payment-title">
+<div class="payment-topline">
+<p class="eyebrow">TEST CHECKOUT</p>
+<!-- <span class="test-badge">TEST MODE</span> -->
+</div>
+<h1 id="payment-title">
+<%= isPending ? 'Complete your payment' : isSuccessful ? 'Payment successful' : 'Payment declined' %>
 </h1>
-<p class="price">
-<%= money(payment.amount) %> <small>USD</small>
+<p class="muted payment-intro">
+<%= isPending ? 'Review the payment details below and choose an outcome to continue.' : isSuccessful ? 'Your simulated payment has been recorded successfully.' : 'The simulated payment was declined. You can safely try again from the visit.' %>
 </p>
-<!-- <p class="muted">This is a simulation. No card details or real money are involved.</p> -->
+<div class="payment-total">
+<div>
+<span class="summary-label">Total</span>
+<p class="price"><%= money(payment.amount) %></p>
+</div>
+<small>USD</small>
+</div>
+<div class="payment-summary">
+<div class="summary-item">
+<span class="summary-label">Payment method</span>
+<strong>Test card</strong>
+<span class="muted">•••• 4242</span>
+</div>
+<div class="summary-item">
+<span class="summary-label">Reference</span>
+<strong>#<%= reference %></strong>
+<span class="muted">Mock payment</span>
+</div>
+</div>
+<p class="test-disclaimer">
+<span aria-hidden="true">ⓘ</span>
+<span>This is a simulation. No card details or real money are involved.</span>
+</p>
 <% if(message){ %>
-<p class="notice" role="status">
+<p class="notice <%= message.startsWith('Delivery failed') ? 'error' : '' %>" role="status">
 <%= message %>
 </p>
 <% } %>
-<form method="post" action="/checkout/<%= payment.token %>">
+<form class="checkout-form" method="post" action="/checkout/<%= payment.token %>" data-checkout-form data-processing-copy="<%= isPending ? 'Processing test payment…' : 'Sending confirmation…' %>">
 <input type="hidden" name="_csrf" value="<%= payment.token %>">
 <div class="actions">
-<% if(payment.status==='pending'){ %>
-<button name="outcome" value="succeeded">Approve payment</button>
-<button class="secondary" name="outcome" value="declined">Simulate decline</button>
+<% if(isPending){ %>
+<button type="submit" name="outcome" value="succeeded" data-processing-label="Processing…">Pay <%= money(payment.amount) %></button>
+<button class="secondary" type="submit" name="outcome" value="declined" data-processing-label="Simulating…">Simulate decline</button>
 <% }else{ %>
-<button name="outcome" value="resend">Resend confirmation</button>
+<button type="submit" name="outcome" value="resend" data-processing-label="Sending…">Resend confirmation</button>
 <% } %>
 </div>
+<p class="processing-message" data-processing-message role="status" aria-live="polite" hidden>
+<span class="spinner" aria-hidden="true"></span>
+<span data-processing-copy-text><%= isPending ? 'Processing test payment…' : 'Sending confirmation…' %></span>
+</p>
 </form>
+<% if(!isPending){ %>
+<p class="muted resend-help">Re-sending the confirmation is safe and will not create another charge.</p>
+<% } %>
 <p>
 <a href="<%= appUrl %>">Return to your visits →</a>
 </p>
 </section>
+<script src="/checkout.js" defer></script>
 <%- include('partials/footer') %>

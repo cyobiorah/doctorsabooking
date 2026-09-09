@@ -12,6 +12,9 @@ export function createMockApp() {
   app.set("views", "views");
   app.use(security);
   app.use("/style.css", express.static("public/style.css"));
+  app.get("/checkout.js", (_req, res) => {
+    res.sendFile("checkout.js", { root: "public" });
+  });
   app.use(express.json({ limit: "16kb" }));
   app.use(express.urlencoded({ extended: false, limit: "16kb" }));
   app.use((_req, res, next) => {
