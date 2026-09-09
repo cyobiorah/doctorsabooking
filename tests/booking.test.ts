@@ -5,6 +5,8 @@ import { db } from "../src/db";
 import { createApp } from "../src/app";
 import { createMockApp } from "../src/mock";
 import { secret } from "../src/config";
+import { seedDemoData } from "../src/seed-data";
+import { DEMO_DOCTOR_LOCATIONS } from "../src/locations";
 import { DEMO_ACCOUNTS } from "../src/demo-accounts";
 import {
   Actor,
@@ -457,8 +459,11 @@ test("mock creation is idempotent and saved outcomes survive failed delivery and
     .expect(409);
   const path = new URL(first.body.checkoutUrl).pathname;
   const checkout = await request(mock).get(path).expect(200);
-  expect(checkout.text).toContain("SECURE TEST CHECKOUT");
-  expect(checkout.text).toContain("TEST MODE");
+  const visibleCheckout = checkout.text.replace(/<!--[\s\S]*?-->/g, "");
+  expect(visibleCheckout).toContain("TEST CHECKOUT");
+  expect(visibleCheckout).toContain(
+    "This is a simulation. No card details or real money are involved.",
+  );
   expect(checkout.text).toContain("Test card");
   expect(checkout.text).toContain("•••• 4242");
   expect(checkout.text).toContain("Complete your payment");
@@ -713,4 +718,33 @@ test("renders service-area settings and warns patients about uncovered requests"
   expect(
     (await patientAgent.get(`/visits/${visit.id}`).expect(200)).text,
   ).toContain("No doctors currently cover this area");
+});
+
+test("demo seeding provisions defaults once and preserves saved service areas", async () => {
+  await seedDemoData();
+  const demoDoctor = await db.user.findUniqueOrThrow({
+    where: { email: "doctor1@demo.local" },
+    include: { doctorLocations: { include: { location: true } } },
+  });
+  expect(
+    demoDoctor.doctorLocations.map((link) => link.location.slug).sort(),
+  ).toEqual([...DEMO_DOCTOR_LOCATIONS[demoDoctor.email]].sort());
+  await updateDoctorLocations(demoDoctor, {
+    locationIds: [locationIds.london],
+  });
+  const accountCount = await db.user.count();
+  const relationshipCount = await db.doctorLocation.count();
+  await seedDemoData();
+  await seedDemoData();
+  const saved = await db.doctorLocation.findMany({
+    where: { doctorId: demoDoctor.id },
+  });
+  expect(saved.map((link) => link.locationId)).toEqual([locationIds.london]);
+  expect(await db.user.count()).toBe(accountCount);
+  expect(
+    await db.user.count({
+      where: { email: { in: DEMO_ACCOUNTS.map((account) => account.email) } },
+    }),
+  ).toBe(DEMO_ACCOUNTS.length);
+  expect(await db.doctorLocation.count()).toBe(relationshipCount);
 });

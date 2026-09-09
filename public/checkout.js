@@ -25,6 +25,8 @@
 
     window.setTimeout(function () {
       form.dataset.ready = "true";
+      // Disabled buttons are omitted from the submitted form data.
+      submitter.disabled = false;
       form.requestSubmit(submitter);
     }, 450);
   });

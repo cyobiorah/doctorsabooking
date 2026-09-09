@@ -30,7 +30,7 @@ Open [the booking application](http://localhost:3000). The mock checkout runs at
 3. As the patient, open the visit and choose **Select bid & pay**. The selection is now locked.
 4. Choose **Simulate decline** at checkout. Return to the visit: it remains `bidding`, the attempt is declined, and every existing bid is selectable again.
 5. Choose **Continue / retry payment** for the original doctor, or select a different bid such as Dr. Morgan. The newly selected doctor and price lock while checkout is pending.
-6. Choose **Approve payment** on the checkout. Return to see `assigned` and the selected doctor.
+6. Choose **Pay $…** (the selected bid amount) on the checkout. Return to see `assigned` and the selected doctor.
 7. Click **Resend confirmation** at checkout multiple times. The assignment and lifecycle history remain unchanged.
 8. Sign in as the winning doctor to view the assigned visit.
 
@@ -42,16 +42,10 @@ If callback delivery fails, the checkout retains the outcome and offers resend. 
 docker compose --profile test run --build --rm test
 ```
 
-Tests migrate and use a separate, ephemeral `doctorsa_test` MySQL database. A safety guard refuses to run against the demo database. Tests cover the complete lifecycle; duplicate and concurrent webhooks; repeated and competing checkout submissions; decline and retry; conflicting terminal outcomes; invalid callbacks; ownership and role checks; CSRF and SSR login/logout; and rollback after writes followed by successful redelivery. The mock delivery test injects a network failure; transaction tests use actual MySQL, not mocked Prisma calls.
+Tests migrate and use a separate, ephemeral `doctorsa_test` MySQL database. A safety guard refuses to run against the demo database. Tests cover the complete lifecycle; duplicate and concurrent webhooks; repeated and competing checkout submissions; decline and retry; conflicting terminal outcomes; invalid callbacks; ownership and role checks; CSRF and SSR login/logout; rollback after writes followed by successful redelivery; and repeatable demo seeding that preserves saved service areas. The mock delivery test injects a network failure; transaction tests use actual MySQL, not mocked Prisma calls.
 
 Stop services with `docker compose down`. Data and generated local secrets persist in named volumes. `docker compose down --volumes` **deletes demo data and secrets** and resets the exercise. Test-only services can be stopped with `docker compose --profile test down`.
 
-## Verification performed
-
-- Docker images built successfully; initial migrations, generated secrets, seed accounts and service health checks verified.
-- All 18 Jest/Supertest tests passed against MySQL.
-- Browser walkthrough completed: patient request, doctor bid, declined checkout, retry, successful webhook, duplicate resend, and assigned doctor dashboard.
-- Strict TypeScript compilation and Prisma schema validation passed. Production dependency audit reported zero known vulnerabilities at verification time.
 
 ## Architecture and decisions
 
@@ -62,6 +56,7 @@ Stop services with `docker compose down`. Data and generated local secrets persi
 - **Separate mock service:** service-to-service requests authenticate using a generated shared secret. The callback URL is configured by the service, never supplied by the browser. The mock persists its outcome before sending the callback, and its creation endpoint is idempotent by attempt ID.
 - **Database isolation:** the mock has its own MySQL container and persistent volume, making the simulated provider independent of the application's tables and transactions. Both use the same schema migration for a small build pipeline, although each service only uses its relevant tables. This costs an extra MySQL process; a shared server with separate schemas/users would be a leaner deployment.
 - **Docker secrets for the demo:** a one-shot container generates random database, session, and payment secrets into a named volume. None are committed. Root database access and shared volume access simplify local provisioning; production would use scoped database accounts and managed secrets.
+- **Demo seeding:** missing demo accounts are created with their default doctor service areas in the same database write. Subsequent starts preserve existing accounts and doctors’ saved area selections.
 - **Location matching:** active service areas live in a shared `Location` catalog. Doctors select at least one through `/settings/locations`; open requests are visible and bid-able only when the doctor covers the request's location. A visit keeps the catalog ID plus a display-name snapshot, and an inactive legacy location preserves historical records from before the catalog existed.
 
 ### Lifecycle and concurrency
@@ -114,7 +109,6 @@ The public demo has no login rate limiter, password recovery, or production depl
 - `src/services.ts`: validation, locks and booking transitions.
 - `src/app.ts`: session-backed SSR routes and the webhook.
 - `src/mock.ts`: independent mock checkout and callback delivery.
+- `src/seed-data.ts`: repeatable demo provisioning; `src/seed.ts`: command-line entry point.
 - `prisma/`: schema and migrations; `tests/`: MySQL integration tests.
 - `views/` and `public/`: server-rendered interface and styling.
-
-To discuss the implementation, start with `selectAndPay` and `confirmPayment`: why external HTTP calls happen outside the database transaction, why the visit lock comes first, and why webhook event recording must commit with assignment. Then trace a form through an Express route, a service, Prisma, and an EJS view.
