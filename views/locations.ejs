@@ -1,0 +1,27 @@
+<%- include('partials/header') %>
+<a href="/">← Dashboard</a>
+<section class="card narrow">
+<p class="eyebrow">DOCTOR PROFILE</p>
+<h1>Your service areas</h1>
+<p class="muted">Select every city or region where you can provide care. You must keep at least one active service area.</p>
+<% if(notice){ %>
+<p class="notice" role="status"><%= notice %></p>
+<% } %>
+<% if(error){ %>
+<p class="notice error" role="alert"><%= error %></p>
+<% } %>
+<form method="post" action="/settings/locations">
+<input type="hidden" name="_csrf" value="<%= csrf %>">
+<fieldset>
+<legend>Locations you cover</legend>
+<% for(const location of locations){ %>
+<label class="checkbox-label">
+<input type="checkbox" name="locationIds" value="<%= location.id %>" <%= selectedLocationIds.has(location.id) ? 'checked' : '' %>>
+<span><%= location.name %>, <%= location.country %></span>
+</label>
+<% } %>
+</fieldset>
+<button>Save service areas</button>
+</form>
+</section>
+<%- include('partials/footer') %>

@@ -7,11 +7,17 @@
 <input type="hidden" name="_csrf" value="<%= csrf %>">
 <label>Specialty<input name="specialty" minlength="2" maxlength="100" placeholder="e.g. General practice" required>
 </label>
-<label>Location<input name="location" minlength="2" maxlength="200" placeholder="City or neighbourhood" required>
+<label>Service area<select name="locationId" required>
+<option value="">Choose a city or region</option>
+<% for(const location of locations){ %>
+<option value="<%= location.id %>"><%= location.name %>, <%= location.country %><%= location._count.doctorLocations ? '' : ' — No doctors currently cover this area' %></option>
+<% } %>
+</select>
 </label>
+<p class="muted">Doctors can serve more than one area. Requests in an uncovered area remain visible as demand, but may not receive bids immediately.</p>
 <label>Preferred time (UTC)<input type="datetime-local" name="preferredTime" required>
 </label>
-<p class="muted">Enter a future time in UTC. Doctors will bid on this request.</p>
+<p class="muted">Enter a future time in UTC. Matching doctors will bid on this request.</p>
 <button>Submit request</button>
 </form>
 </section>

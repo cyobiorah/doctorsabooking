@@ -16,7 +16,7 @@ export function requireRole(actor: Actor, role: Role) {
 }
 export const requestInput = z.object({
   specialty: z.string().trim().min(2).max(100),
-  location: z.string().trim().min(2).max(200),
+  locationId: z.string().uuid(),
   preferredTime: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
@@ -25,6 +25,13 @@ export const requestInput = z.object({
       (d) => Number.isFinite(d.getTime()) && d > new Date(),
       "Choose a future time (UTC).",
     ),
+});
+const doctorLocationInput = z.object({
+  locationIds: z.preprocess(
+    (value) =>
+      Array.isArray(value) ? value : typeof value === "string" ? [value] : [],
+    z.array(z.string().uuid()).min(1).max(50),
+  ),
 });
 export const bidInput = z.object({
   price: z
@@ -50,6 +57,59 @@ export const eventInput = z
   })
   .strict();
 export type PaymentEvent = z.infer<typeof eventInput>;
+export async function listActiveLocations() {
+  return db.location.findMany({
+    where: { active: true },
+    include: { _count: { select: { doctorLocations: true } } },
+    orderBy: [{ country: "asc" }, { name: "asc" }],
+  });
+}
+export async function getDoctorLocations(actor: Actor) {
+  requireRole(actor, "doctor");
+  return db.doctorLocation.findMany({
+    where: { doctorId: actor.id },
+    include: { location: true },
+    orderBy: { location: { name: "asc" } },
+  });
+}
+export async function updateDoctorLocations(actor: Actor, raw: unknown) {
+  requireRole(actor, "doctor");
+  const data = doctorLocationInput.parse(raw);
+  const locationIds = [...new Set(data.locationIds)];
+  if (locationIds.length !== data.locationIds.length)
+    throw new HttpError(400, "Choose each service area only once.");
+  return db.$transaction(async (tx) => {
+    const locations = await tx.location.findMany({
+      where: { id: { in: locationIds }, active: true },
+      select: { id: true },
+    });
+    if (locations.length !== locationIds.length)
+      throw new HttpError(400, "One or more service areas are unavailable.");
+    await tx.doctorLocation.deleteMany({ where: { doctorId: actor.id } });
+    await tx.doctorLocation.createMany({
+      data: locationIds.map((locationId) => ({
+        doctorId: actor.id,
+        locationId,
+      })),
+    });
+    return tx.doctorLocation.findMany({
+      where: { doctorId: actor.id },
+      include: { location: true },
+      orderBy: { location: { name: "asc" } },
+    });
+  });
+}
+async function doctorCoversLocation(
+  tx: Prisma.TransactionClient,
+  doctorId: string,
+  locationId: string,
+) {
+  const link = await tx.doctorLocation.findUnique({
+    where: { doctorId_locationId: { doctorId, locationId } },
+    include: { location: { select: { active: true } } },
+  });
+  return !!link?.location.active;
+}
 // Every operation that changes a booking locks the visit first, in the same order.
 // READ COMMITTED ensures reads after waiting for that lock see the preceding commit.
 // In particular, a webhook must not retain a snapshot from its initial attempt lookup.
@@ -65,9 +125,17 @@ async function lockVisit(tx: Prisma.TransactionClient, id: string) {
 export async function createVisit(actor: Actor, raw: unknown) {
   requireRole(actor, "patient");
   const data = requestInput.parse(raw);
+  const location = await db.location.findFirst({
+    where: { id: data.locationId, active: true },
+  });
+  if (!location)
+    throw new HttpError(400, "Choose an active service area from the catalog.");
   return db.visit.create({
     data: {
-      ...data,
+      specialty: data.specialty,
+      locationId: location.id,
+      location: location.name,
+      preferredTime: data.preferredTime,
       patientId: actor.id,
       history: { create: { status: "open" } },
     },
@@ -79,6 +147,11 @@ export async function submitBid(actor: Actor, visitId: string, raw: unknown) {
   return db.$transaction(
     async (tx) => {
       const v = await lockVisit(tx, visitId);
+      if (!(await doctorCoversLocation(tx, actor.id, v.locationId)))
+        throw new HttpError(
+          403,
+          "You can only bid on visits in your active service areas.",
+        );
       if (v.selectedBidId || !["open", "bidding"].includes(v.status))
         throw new HttpError(409, "This visit is no longer accepting bids.");
       if (

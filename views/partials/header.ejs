@@ -16,6 +16,9 @@
 <span>
 <%= user.name %> · <%= user.role %>
 </span>
+<% if(user.role==='doctor'){ %>
+<a href="/settings/locations">Service areas</a>
+<% } %>
 <form method="post" action="/logout">
 <input type="hidden" name="_csrf" value="<%= csrf %>">
 <button class="secondary">Sign out</button>

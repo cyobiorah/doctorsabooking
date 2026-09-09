@@ -1,13 +1,13 @@
 <%- include('partials/header') %>
 <section class="card narrow">
-<p class="eyebrow">MOCK PAYMENT SERVICE</p>
+<p class="eyebrow">MAKE PAYMENT</p>
 <h1>
 <%= payment.status==='pending'?'Complete your payment':'Payment '+payment.status %>
 </h1>
 <p class="price">
 <%= money(payment.amount) %> <small>USD</small>
 </p>
-<p class="muted">This is a simulation. No card details or real money are involved.</p>
+<!-- <p class="muted">This is a simulation. No card details or real money are involved.</p> -->
 <% if(message){ %>
 <p class="notice" role="status">
 <%= message %>

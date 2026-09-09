@@ -2,7 +2,7 @@ import express from "express";
 import session from "express-session";
 import { randomBytes } from "node:crypto";
 import { compare } from "bcryptjs";
-import { z } from "zod";
+import { ZodError, z } from "zod";
 import { db } from "./db";
 import { secret, mockUrl } from "./config";
 import { MysqlSessionStore } from "./session-store";
@@ -15,6 +15,9 @@ import {
   confirmPayment,
   eventInput,
   HttpError,
+  getDoctorLocations,
+  listActiveLocations,
+  updateDoctorLocations,
 } from "./services";
 
 export function createApp() {
@@ -133,7 +136,18 @@ export function createApp() {
           ? { patientId: user.id }
           : {
               OR: [
-                { status: { in: ["open", "bidding"] }, selectedBidId: null },
+                {
+                  status: { in: ["open", "bidding"] },
+                  selectedBidId: null,
+                  locationRef: {
+                    doctorLocations: {
+                      some: {
+                        doctorId: user.id,
+                        location: { active: true },
+                      },
+                    },
+                  },
+                },
                 { assignedDoctorId: user.id },
                 { bids: { some: { doctorId: user.id } } },
               ],
@@ -146,10 +160,68 @@ export function createApp() {
       visits,
     });
   });
-  app.get("/visits/new", (_req, res) => {
+  app.get("/visits/new", async (_req, res) => {
     if (res.locals.user.role !== "patient")
       throw new HttpError(403, "Only patients can request visits.");
-    res.render("new-visit", { title: "Request a visit" });
+    res.render("new-visit", {
+      title: "Request a visit",
+      locations: await listActiveLocations(),
+    });
+  });
+  app.get("/settings/locations", async (req, res) => {
+    if (res.locals.user.role !== "doctor")
+      throw new HttpError(403, "Only doctors can manage service areas.");
+    const notice = req.session.locationNotice;
+    delete req.session.locationNotice;
+    const [locations, selected] = await Promise.all([
+      listActiveLocations(),
+      getDoctorLocations(res.locals.user),
+    ]);
+    res.render("locations", {
+      title: "Service areas",
+      locations,
+      selectedLocationIds: new Set(selected.map((link) => link.locationId)),
+      notice,
+      error: null,
+    });
+  });
+  app.post("/settings/locations", async (req, res, next) => {
+    try {
+      await updateDoctorLocations(res.locals.user, req.body);
+      req.session.locationNotice = "Service areas updated successfully.";
+      res.redirect(303, "/settings/locations");
+    } catch (err) {
+      const expected =
+        err instanceof ZodError ||
+        (err instanceof HttpError && err.status === 400);
+      if (!expected) {
+        next(err);
+        return;
+      }
+      const rawIds = req.body?.locationIds;
+      const selectedLocationIds = new Set(
+        (Array.isArray(rawIds)
+          ? rawIds
+          : typeof rawIds === "string"
+            ? [rawIds]
+            : []
+        ).filter((id): id is string => typeof id === "string"),
+      );
+      const locations = await listActiveLocations();
+      const message =
+        err instanceof ZodError
+          ? err.issues
+              .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+              .join(" ")
+          : err.message;
+      res.status(400).render("locations", {
+        title: "Service areas",
+        locations,
+        selectedLocationIds,
+        notice: null,
+        error: message,
+      });
+    }
   });
   app.post("/visits", async (req, res) => {
     const visit = await createVisit(res.locals.user, req.body);
@@ -166,19 +238,34 @@ export function createApp() {
         payments: { orderBy: { createdAt: "desc" } },
         history: { orderBy: { id: "asc" } },
         assignedDoctor: { select: { name: true } },
+        locationRef: {
+          include: { _count: { select: { doctorLocations: true } } },
+        },
       },
     });
     if (!visit) throw new HttpError(404, "Visit not found.");
     const user = res.locals.user;
     if (user.role === "patient" && visit.patientId !== user.id)
       throw new HttpError(403, "This is not your visit.");
-    if (
-      user.role === "doctor" &&
-      visit.selectedBidId &&
-      visit.assignedDoctorId !== user.id &&
-      !visit.bids.some((b) => b.doctorId === user.id)
-    )
-      throw new HttpError(403, "This visit is not available.");
+    if (user.role === "doctor") {
+      const ownsBid = visit.bids.some((b) => b.doctorId === user.id);
+      const isAssigned = visit.assignedDoctorId === user.id;
+      const coversLocation =
+        ["open", "bidding"].includes(visit.status) &&
+        (
+          await db.doctorLocation.findUnique({
+            where: {
+              doctorId_locationId: {
+                doctorId: user.id,
+                locationId: visit.locationId,
+              },
+            },
+            include: { location: { select: { active: true } } },
+          })
+        )?.location.active === true;
+      if (!ownsBid && !isAssigned && !coversLocation)
+        throw new HttpError(403, "This visit is not available.");
+    }
     if (user.role === "doctor") {
       visit.bids = visit.bids.filter((b) => b.doctorId === user.id);
       visit.payments = [];

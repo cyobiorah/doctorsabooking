@@ -18,7 +18,8 @@
 <% const showDoctorAssignment = user.role==='doctor' && visit.assignedDoctorId===user.id; %>
 <% const showPaymentLock = user.role==='patient' && !!visit.selectedBidId && visit.status!=='assigned'; %>
 <% const showPaymentDeclined = user.role==='patient' && visit.status==='bidding' && visit.payments[0]?.status==='declined'; %>
-<% if(showPatientAssignment || showDoctorAssignment || showPaymentLock || showPaymentDeclined){ %>
+<% const showUncovered = user.role==='patient' && ['open','bidding'].includes(visit.status) && visit.locationRef._count.doctorLocations===0; %>
+<% if(showPatientAssignment || showDoctorAssignment || showPaymentLock || showPaymentDeclined || showUncovered){ %>
 <div class="status-banner-row">
 <% if(showPatientAssignment){ %>
 <p class="notice">Confirmed! Your visit is assigned to <strong>
@@ -30,6 +31,8 @@
 <p class="notice">Your doctor and price are locked. Complete checkout below.</p>
 <% } else if(showPaymentDeclined){ %>
 <p class="notice">Payment declined. Retry this doctor or choose another bid.</p>
+<% } else if(showUncovered){ %>
+<p class="notice">No doctors currently cover this area. Your request is saved and will become visible if a doctor adds this service area.</p>
 <% } %>
 </div>
 <% } %>

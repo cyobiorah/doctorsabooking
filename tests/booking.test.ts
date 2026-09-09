@@ -13,6 +13,7 @@ import {
   selectAndPay,
   confirmPayment,
   PaymentEvent,
+  updateDoctorLocations,
 } from "../src/services";
 
 if (
@@ -25,6 +26,7 @@ process.env.SESSION_SECRET ??= "test-session-secret-not-for-deployment";
 process.env.PAYMENT_SECRET ??= "test-payment-secret-not-for-deployment";
 const app = createApp();
 let patient: Actor, otherPatient: Actor, doctor: Actor, otherDoctor: Actor;
+let locationIds: Record<string, string>;
 const auth = () => `Bearer ${secret("PAYMENT_SECRET")}`;
 const csrf = (html: string) => {
   const match = html.match(/name="_csrf" value="([^"]+)"/);
@@ -34,7 +36,7 @@ const csrf = (html: string) => {
 async function fixture() {
   const visit = await createVisit(patient, {
     specialty: "General practice",
-    location: "Lagos",
+    locationId: locationIds.lagos,
     preferredTime: "2099-10-01T10:00",
   });
   const bid = await submitBid(doctor, visit.id, {
@@ -94,6 +96,21 @@ beforeAll(async () => {
       role: "doctor",
       passwordHash,
     },
+  });
+  const locations = await db.location.findMany({
+    where: { active: true },
+    select: { id: true, slug: true },
+  });
+  locationIds = Object.fromEntries(
+    locations.map((location) => [location.slug, location.id]),
+  );
+  await db.doctorLocation.createMany({
+    data: [doctor, otherDoctor].flatMap((d) =>
+      locations.map((location) => ({
+        doctorId: d.id,
+        locationId: location.id,
+      })),
+    ),
   });
 });
 afterAll(() => db.$disconnect());
@@ -345,7 +362,7 @@ test("SSR login, CSRF, ownership, request creation and logout", async () => {
     .send({
       _csrf: csrf(form.text),
       specialty: "Dermatology",
-      location: "Abuja",
+      locationId: locationIds.abuja,
       preferredTime: "2099-11-01T12:00",
     })
     .expect(303);
@@ -354,7 +371,7 @@ test("SSR login, CSRF, ownership, request creation and logout", async () => {
   ).toContain("Dermatology");
   const privateVisit = await createVisit(otherPatient, {
     specialty: "Private",
-    location: "Abuja",
+    locationId: locationIds.abuja,
     preferredTime: "2099-11-01T12:00",
   });
   await agent.get(`/visits/${privateVisit.id}`).expect(403);
@@ -368,7 +385,7 @@ test("SSR login, CSRF, ownership, request creation and logout", async () => {
 test("SSR visit notices are scoped to the patient and assigned doctor", async () => {
   const visit = await createVisit(patient, {
     specialty: "Notice coverage",
-    location: "Abuja",
+    locationId: locationIds.abuja,
     preferredTime: "2099-12-01T12:00",
   });
   const winningBid = await submitBid(doctor, visit.id, {
@@ -397,18 +414,12 @@ test("SSR visit notices are scoped to the patient and assigned doctor", async ()
     return agent;
   }
 
-  const patientPage = await (
-    await loggedIn("patient@test.local")
-  )
+  const patientPage = await (await loggedIn("patient@test.local"))
     .get(`/visits/${visit.id}`)
     .expect(200);
-  expect(patientPage.text).toContain(
-    "Confirmed! Your visit is assigned to",
-  );
+  expect(patientPage.text).toContain("Confirmed! Your visit is assigned to");
 
-  const winningDoctorPage = await (
-    await loggedIn("doctor@test.local")
-  )
+  const winningDoctorPage = await (await loggedIn("doctor@test.local"))
     .get(`/visits/${visit.id}`)
     .expect(200);
   expect(winningDoctorPage.text).toContain("This visit is assigned to you.");
@@ -416,9 +427,7 @@ test("SSR visit notices are scoped to the patient and assigned doctor", async ()
     "Confirmed! Your visit is assigned to",
   );
 
-  const otherDoctorPage = await (
-    await loggedIn("doctor2@test.local")
-  )
+  const otherDoctorPage = await (await loggedIn("doctor2@test.local"))
     .get(`/visits/${visit.id}`)
     .expect(200);
   expect(otherDoctorPage.text).not.toContain(
@@ -509,13 +518,20 @@ test("validates future request time and exact minor-unit prices", async () => {
   await expect(
     createVisit(patient, {
       specialty: "GP",
-      location: "Lagos",
+      locationId: locationIds.lagos,
       preferredTime: "2020-01-01T12:00",
     }),
   ).rejects.toHaveProperty("issues");
+  await expect(
+    createVisit(patient, {
+      specialty: "GP",
+      locationId: randomUUID(),
+      preferredTime: "2099-01-01T12:00",
+    }),
+  ).rejects.toMatchObject({ status: 400 });
   const visit = await createVisit(patient, {
     specialty: "GP",
-    location: "Lagos",
+    locationId: locationIds.lagos,
     preferredTime: "2099-01-01T12:00",
   });
   await expect(
@@ -529,4 +545,162 @@ test("validates future request time and exact minor-unit prices", async () => {
     note: "Exact cents",
   });
   expect(bid.amount).toBe(1001);
+});
+
+test("matches open visits by location and enforces the rule server-side", async () => {
+  const lagos = await db.location.findUniqueOrThrow({
+    where: { slug: "lagos" },
+  });
+  const abuja = await db.location.findUniqueOrThrow({
+    where: { slug: "abuja" },
+  });
+  await updateDoctorLocations(doctor, { locationIds: [lagos.id] });
+  await updateDoctorLocations(otherDoctor, { locationIds: [abuja.id] });
+  const visit = await createVisit(patient, {
+    specialty: "Location matching",
+    locationId: lagos.id,
+    preferredTime: "2099-02-01T12:00",
+  });
+
+  await expect(
+    submitBid(otherDoctor, visit.id, {
+      price: "50",
+      note: "Outside my service area",
+    }),
+  ).rejects.toMatchObject({ status: 403 });
+  await submitBid(doctor, visit.id, {
+    price: "55",
+    note: "I cover Lagos.",
+  });
+
+  async function loggedIn(email: string) {
+    const agent = request.agent(app);
+    const login = await agent.get("/login").expect(200);
+    await agent
+      .post("/login")
+      .type("form")
+      .send({
+        _csrf: csrf(login.text),
+        email,
+        password: "DemoPass123!",
+      })
+      .expect(303);
+    return agent;
+  }
+
+  const otherDashboard = await (await loggedIn("doctor2@test.local"))
+    .get("/")
+    .expect(200);
+  expect(otherDashboard.text).not.toContain("Location matching");
+  await (await loggedIn("doctor2@test.local"))
+    .get(`/visits/${visit.id}`)
+    .expect(403);
+});
+
+test("doctor service areas require active catalog locations and at least one selection", async () => {
+  const lagos = await db.location.findUniqueOrThrow({
+    where: { slug: "lagos" },
+  });
+  await expect(
+    updateDoctorLocations(doctor, { locationIds: [] }),
+  ).rejects.toHaveProperty("issues");
+  await expect(
+    updateDoctorLocations(doctor, { locationIds: [lagos.id, lagos.id] }),
+  ).rejects.toMatchObject({ status: 400 });
+  const saved = await updateDoctorLocations(doctor, {
+    locationIds: [lagos.id],
+  });
+  expect(saved.map((link) => link.location.slug)).toEqual(["lagos"]);
+});
+
+test("renders service-area settings and warns patients about uncovered requests", async () => {
+  const newYork = await db.location.findUniqueOrThrow({
+    where: { slug: "new-york" },
+  });
+  const legacy = await db.location.findUniqueOrThrow({
+    where: { slug: "legacy-location" },
+  });
+  const doctorAgent = request.agent(app);
+  const doctorLogin = await doctorAgent.get("/login").expect(200);
+  await doctorAgent
+    .post("/login")
+    .type("form")
+    .send({
+      _csrf: csrf(doctorLogin.text),
+      email: "doctor@test.local",
+      password: "DemoPass123!",
+    })
+    .expect(303);
+  const settings = await doctorAgent.get("/settings/locations").expect(200);
+  expect(settings.text).toContain("Your service areas");
+  expect(settings.text).toContain("Lagos, Nigeria");
+  await doctorAgent
+    .post("/settings/locations")
+    .type("form")
+    .send({
+      _csrf: csrf(settings.text),
+      locationIds: locationIds.lagos,
+    })
+    .expect(303)
+    .expect("Location", "/settings/locations");
+  const savedSettings = await doctorAgent
+    .get("/settings/locations")
+    .expect(200);
+  expect(savedSettings.text).toContain(
+    '<p class="notice" role="status">Service areas updated successfully.</p>',
+  );
+  expect(
+    (await doctorAgent.get("/settings/locations").expect(200)).text,
+  ).not.toContain("Service areas updated successfully.");
+
+  const duplicateSettings = await doctorAgent
+    .get("/settings/locations")
+    .expect(200);
+  const duplicate = await doctorAgent
+    .post("/settings/locations")
+    .type("form")
+    .send({
+      _csrf: csrf(duplicateSettings.text),
+      locationIds: [locationIds.lagos, locationIds.lagos],
+    })
+    .expect(400);
+  expect(duplicate.text).toContain("Choose each service area only once.");
+  expect(duplicate.text).toContain(`value="${locationIds.lagos}" checked`);
+
+  const inactiveSettings = await doctorAgent
+    .get("/settings/locations")
+    .expect(200);
+  const inactive = await doctorAgent
+    .post("/settings/locations")
+    .type("form")
+    .send({
+      _csrf: csrf(inactiveSettings.text),
+      locationIds: [locationIds.lagos, legacy.id],
+    })
+    .expect(400);
+  expect(inactive.text).toContain("One or more service areas are unavailable.");
+  expect(inactive.text).toContain(`value="${locationIds.lagos}" checked`);
+
+  const visit = await createVisit(patient, {
+    specialty: "Uncovered area",
+    locationId: newYork.id,
+    preferredTime: "2099-03-01T12:00",
+  });
+  const patientAgent = request.agent(app);
+  const patientLogin = await patientAgent.get("/login").expect(200);
+  await patientAgent
+    .post("/login")
+    .type("form")
+    .send({
+      _csrf: csrf(patientLogin.text),
+      email: "patient@test.local",
+      password: "DemoPass123!",
+    })
+    .expect(303);
+  expect((await patientAgent.get("/visits/new").expect(200)).text).toContain(
+    "Choose a city or region",
+  );
+  expect(
+    (await patientAgent.get(`/visits/${visit.id}`).expect(200)).text,
+  ).toContain("No doctors currently cover this area");
 });
