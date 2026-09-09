@@ -12,18 +12,16 @@ docker compose up
 
 Open [the booking application](http://localhost:3000). The mock checkout runs at [localhost:3001](http://localhost:3001). The first start downloads images, builds TypeScript, migrates the databases, and creates demo users. No local Node.js, MySQL, environment file, or payment keys are required. Subsequent source changes require `docker compose up --build`.
 
-| Role    | Email              | Password     |
-| ------- | ------------------ | ------------ |
-| Patient | patient@demo.local | DemoPass123! |
+| Role    | Email               | Password     |
+| ------- | ------------------- | ------------ |
+| Patient | patient@demo.local  | DemoPass123! |
 | Patient | patient2@demo.local | DemoPass123! |
 | Patient | patient3@demo.local | DemoPass123! |
 | Patient | patient4@demo.local | DemoPass123! |
 | Patient | patient5@demo.local | DemoPass123! |
-| Doctor  | doctor1@demo.local | DemoPass123! |
-| Doctor  | doctor2@demo.local | DemoPass123! |
-| Doctor  | doctor3@demo.local | DemoPass123! |
-
-These are intentionally public demo credentials. Do not use this setup for real patient data.
+| Doctor  | doctor1@demo.local  | DemoPass123! |
+| Doctor  | doctor2@demo.local  | DemoPass123! |
+| Doctor  | doctor3@demo.local  | DemoPass123! |
 
 ### Try the flow
 
@@ -51,7 +49,7 @@ Stop services with `docker compose down`. Data and generated local secrets persi
 ## Verification performed
 
 - Docker images built successfully; initial migrations, generated secrets, seed accounts and service health checks verified.
-- All 14 Jest/Supertest tests passed against MySQL.
+- All 15 Jest/Supertest tests passed against MySQL.
 - Browser walkthrough completed: patient request, doctor bid, declined checkout, retry, successful webhook, duplicate resend, and assigned doctor dashboard.
 - Strict TypeScript compilation and Prisma schema validation passed. Production dependency audit reported zero known vulnerabilities at verification time.
 
@@ -59,7 +57,7 @@ Stop services with `docker compose down`. Data and generated local secrets persi
 
 - **Node.js 22, strict TypeScript, Express 5:** a small HTTP layer, explicit validation and business services; no framework-specific dependency injection or generic repository abstraction.
 - **EJS and plain CSS:** the server fetches data and renders HTML. Standard forms submit to Express and redirect to GET pages. Templates display data; the booking rules live in TypeScript. Escaped EJS output is used for user data.
-- **Prisma 6 and MySQL 8.4 / InnoDB:** a pinned, familiar Prisma API (with a patched `deepmerge-ts` tooling override), typed queries, checked-in SQL migrations, foreign keys and transactions. Money uses integer minor units in USD. The bid is immutable, so it remains the source of the selected doctor's identity and price; each attempt stores its original bid, expected amount, and currency.
+- **Prisma 6 and MySQL 8.4 / InnoDB:** Prisma API (with a patched `deepmerge-ts` tooling override), typed queries, checked-in SQL migrations, foreign keys and transactions. Money uses integer minor units in USD. The bid is immutable, so it remains the source of the selected doctor's identity and price; each attempt stores its original bid, expected amount, and currency.
 - **Database sessions:** a small express-session store backed by Prisma, with expiration checks and hourly cleanup. Passwords are bcrypt hashed. Login regenerates the session; cookies are HttpOnly and SameSite=Lax. Synchronizer tokens protect forms. Set `COOKIE_SECURE=true` when serving through HTTPS; the local demo uses HTTP.
 - **Separate mock service:** service-to-service requests authenticate using a generated shared secret. The callback URL is configured by the service, never supplied by the browser. The mock persists its outcome before sending the callback, and its creation endpoint is idempotent by attempt ID.
 - **Database isolation:** the mock has its own MySQL container and persistent volume, making the simulated provider independent of the application's tables and transactions. Both use the same schema migration for a small build pipeline, although each service only uses its relevant tables. This costs an extra MySQL process; a shared server with separate schemas/users would be a leaner deployment.
